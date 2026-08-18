@@ -1,0 +1,327 @@
+#include <windows.h>    // Biblioteca para funções do Windows (gotoxy, mouse, console)
+#include <iostream>     // Biblioteca para entrada e saída (cout, cin)
+#include <vector>       // Biblioteca para vetores (não usada, mas mantida)
+#include <ctime>        // Biblioteca para funções de tempo (usado no random)
+
+#define TAM 10         // Define o tamanho do tabuleiro (10x10)
+using namespace std;    // permite usar cout sem std
+
+struct Celula {
+    int eBomba = 0;      // 1 se a célula tem bomba, 0 se não tem
+    int estaAberta = 0;  // 1 se a célula está aberta, 0 se está fechada
+    int vizinhos = 0;    // Número de bombas nas células vizinhas (0-8)
+    int temBandeira = 0; // 1 se tem bandeira, 0 se não tem
+};
+
+// variavel global
+Celula jogo[TAM][TAM];  // Matriz do tabuleiro (10x10 células)
+int bombasTotais = 10;  // Quantidade total de bombas no jogo
+bool perdeu = false;    // boleano para indicar se o jogador perdeu
+
+
+bool coordenadaValida(int l, int c) {
+    // Verifica se a linha (l) e coluna (c) estão dentro dos limites do tabuleiro, se for mair que 10 ou menos que 0 nao eh valida
+    // Retorna true se 0 <= l < TAM e 0 <= c < TAM
+    return l >= 0 && l < TAM && c >= 0 && c < TAM;
+}
+
+// cursor na tela
+void gotoxy(int x, int y) {
+    COORD c;            // Estrutura para coordenadas do cursor
+    c.X = x;            // Define posição X (coluna)
+    c.Y = y;            // Define posição Y (linha)
+    // Move o cursor do console para a posição especificada
+    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), c);
+}
+
+// contar bombas vizinhas
+int contarVizinhos(int l, int c) {
+    int qtd = 0;        // Contador de bombas vizinhas
+
+    // Loop duplo para verificar todas as 8 células vizinhas
+    for (int dl = -1; dl <= 1; dl++) {      // dl varia de -1 a +1 (deslocamento linha)
+        for (int dc = -1; dc <= 1; dc++) {  // dc varia de -1 a +1 (deslocamento coluna)
+            if (dl == 0 && dc == 0) continue; // Pula a própria célula (centro)
+
+            int nl = l + dl;    // Nova linha = linha atual + deslocamento
+            int nc = c + dc;    // Nova coluna = coluna atual + deslocamento
+
+            // Se a coordenada vizinha é válida E tem bomba, conta +1
+            if (coordenadaValida(nl, nc) && jogo[nl][nc].eBomba) // ficaria mais ou menos assim, [l-1][c],[l+1][c],[c-1][l],[c+1][l]
+                qtd++;
+        }
+    }
+    return qtd;         // Retorna total de bombas vizinhas
+}
+
+// conta bandeiras
+int contarBandeiras() {
+    int total = 0;      // Contador de bandeiras
+
+    // Percorre todo o tabuleiro
+    for (int l = 0; l < TAM; l++) {
+        for (int c = 0; c < TAM; c++) {
+            // Se a célula tem bandeira, conta +1
+            if (jogo[l][c].temBandeira)
+                total++;
+        }
+    }
+    return total;       // Retorna total de bandeiras colocadas
+}
+
+// funçao de abrir a celula
+void abrirCelula(int l, int c) {
+    // Verifica se pode abrir: coordenada válida, não está aberta, não tem bandeira
+    if (!coordenadaValida(l, c) || jogo[l][c].estaAberta || jogo[l][c].temBandeira)
+        return;         // Se não pode abrir, sai da função
+
+    jogo[l][c].estaAberta = 1;  // Marca a célula como aberta
+
+    // Se a célula não tem bombas vizinhas E não é bomba, abre células vizinhas
+    if (jogo[l][c].vizinhos == 0 && !jogo[l][c].eBomba) {
+        // Loop para abrir todas as 8 células vizinhas recursivamente
+        for (int dl = -1; dl <= 1; dl++) {
+            for (int dc = -1; dc <= 1; dc++) {
+                if (dl == 0 && dc == 0) continue; // Pula a própria célula
+                abrirCelula(l + dl, c + dc);       // Chamada recursiva
+            }
+        }
+    }
+}
+
+// colocar e remover bandeira
+void alternarBandeira(int l, int c) {
+    // Só pode colocar bandeira se: coordenada válida E célula não está aberta
+    if (!coordenadaValida(l, c) || jogo[l][c].estaAberta)
+        return;         // Se não pode, sai da função
+
+    // Inverte o estado da bandeira: se tem, remove; se não tem, coloca
+    jogo[l][c].temBandeira = ~jogo[l][c].temBandeira;
+}
+
+// inicializar o jogo
+void inicializar() {
+    // Limpa todo o tabuleiro - zera todos os campos de todas as células
+    for (int l = 0; l < TAM; l++) {
+        for (int c = 0; c < TAM; c++) {
+            jogo[l][c].eBomba = 0;      // Não tem bomba
+            jogo[l][c].estaAberta = 0;  // Não está aberta
+            jogo[l][c].vizinhos = 0;    // Zero vizinhos
+            jogo[l][c].temBandeira = 0; // Não tem bandeira
+        }
+    }
+
+    srand((unsigned)time(NULL));    // Inicializa gerador de números aleatórios
+
+    // Coloca as bombas aleatoriamente no tabuleiro
+    for (int i = 0; i < bombasTotais;) {    // Loop até colocar todas as bombas
+        int l = rand() % TAM;   // Linha aleatória (0 a TAM) que é 10
+        int c = rand() % TAM;   // Coluna aleatória (0 a TAM)
+
+        // Se a célula ainda não tem bomba, coloca uma
+        if (!jogo[l][c].eBomba) {
+            jogo[l][c].eBomba = 1;  // Coloca a bomba
+            i++;                    // Incrementa contador (bomba colocada)
+        }
+        // Se já tem bomba, o loop continua para tentar outra posição
+    }
+
+    // Calcula quantas bombas cada célula tem como vizinhas
+    for (int l = 0; l < TAM; l++) {
+        for (int c = 0; c < TAM; c++) {
+            // Só calcula vizinhos se a célula não for bomba
+            if (!jogo[l][c].eBomba) {
+                jogo[l][c].vizinhos = contarVizinhos(l, c);
+            }
+        }
+    }
+}
+
+// desenho do tabuleiro
+void desenharTabuleiro() {
+    gotoxy(0, 0);       // Move cursor para o canto superior esquerdo
+
+    int bandeirasUsadas = contarBandeiras();    // Conta bandeiras colocadas
+    int bombasRestantes = bombasTotais - bandeirasUsadas;   // Calcula bombas restantes
+
+    // Linha 1: Mostra informações do jogo
+    cout << "Campo Minado - Bombas: " << bombasRestantes << " restantes";
+    cout << "                    \n";   // Espaços extras para limpar texto anterior
+
+    // Linha 2: Instruções para o jogador
+    cout << "Clique esquerdo: abrir | Clique direito: bandeira | [ESC]: sair";
+    cout << "       \n\n";              // Espaços extras 
+
+    // Linha 3: Cabeçalho com números das colunas
+    cout << "   ";                      // Espaço para números das linhas
+    for (int c = 0; c < TAM; c++)
+        cout << " " << c << " ";         // Número da coluna (0, 1, 2, ...)
+    cout << "\n";
+
+    // Linhas 4+: Desenha cada linha do tabuleiro
+    for (int l = 0; l < TAM; l++) {
+        cout << " " << l << " ";         // Número da linha no início
+
+        // Desenha cada célula da linha
+        for (int c = 0; c < TAM; c++) {
+            if (jogo[l][c].temBandeira) {
+                cout << " F ";           // Mostra bandeira
+            }
+            else if (jogo[l][c].estaAberta) {   // Se célula está aberta
+                if (jogo[l][c].eBomba)
+                    cout << " * ";       // Mostra bomba
+                else if (jogo[l][c].vizinhos == 0)
+                    cout << "   ";       // Célula vazia (sem número)
+                else
+                    cout << " " << jogo[l][c].vizinhos << " ";  // Mostra número de vizinhos
+            }
+            else {
+                cout << "[ ]";           // Célula fechada
+            }
+        }
+        cout << "\n";                    // Nova linha após cada linha do tabuleiro
+    }
+
+    // Preenche linhas extras para evitar sobreposição de texto antigo
+    for (int i = 0; i < 5; i++) {
+        cout << "                                        \n";
+    }
+}
+
+// verifica se ganhou
+bool venceu() {
+    // Percorre todo o tabuleiro
+    for (int l = 0; l < TAM; l++) {
+        for (int c = 0; c < TAM; c++) {
+            // Se encontrar uma célula que não está aberta E não é bomba
+            // significa que ainda tem células para abrir
+            if (!jogo[l][c].estaAberta && !jogo[l][c].eBomba)
+                return false;           // Ainda não venceu
+        }
+    }
+    return true;                        // Venceu! (só sobraram bombas fechadas)
+}
+
+// loop de eventos
+void loopJogo() {
+    // Configuração do mouse no console
+    HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);    // Handle do input do console
+    DWORD modoAnterior;                             // Guarda modo anterior do console
+    GetConsoleMode(hIn, &modoAnterior);             // Salva configuração atual
+
+    // Ativa mouse e eventos de janela no console
+    SetConsoleMode(hIn, ENABLE_EXTENDED_FLAGS | ENABLE_MOUSE_INPUT | ENABLE_WINDOW_INPUT);
+
+    INPUT_RECORD evento[128];   // Array para armazenar eventos (mouse, teclado, etc.)
+    DWORD nEventos;             // Número de eventos lidos
+
+    desenharTabuleiro();        // Desenha o tabuleiro inicial
+
+    // Loop principal do jogo - continua até perder ou vencer
+    while (!perdeu && !venceu()) {
+        // Lê eventos do console (cliques do mouse, teclas pressionadas)
+        if (ReadConsoleInput(hIn, evento, 128, &nEventos)) {
+            // Processa cada evento que aconteceu
+            for (DWORD i = 0; i < nEventos; i++) {
+
+                // eventos do mouse
+                if (evento[i].EventType == MOUSE_EVENT) {
+                    MOUSE_EVENT_RECORD me = evento[i].Event.MouseEvent;
+
+                    // CLIQUE ESQUERDO - ABRIR CÉLULA
+                    if (me.dwButtonState & FROM_LEFT_1ST_BUTTON_PRESSED) {
+                        // Converte posição do mouse em coordenadas do tabuleiro
+                        // Y-4 porque linha 4 é onde começam as células do tabuleiro, se colocar outros numeros tipo -3 ele abre a celula de baixo
+                        int lin = me.dwMousePosition.Y - 4;
+                        // X-3 dividido por 3 porque cada célula ocupa 3 caracteres
+                        int col = (me.dwMousePosition.X - 3) / 3;
+
+                        // Verifica se clicou em posição válida, célula não aberta, sem bandeira
+                        if (coordenadaValida(lin, col) && !jogo[lin][col].estaAberta && !jogo[lin][col].temBandeira) {
+                            abrirCelula(lin, col);  // Abre a célula
+
+                            // Verifica se clicou em uma bomba
+                            if (jogo[lin][col].eBomba) {
+                                perdeu = true;      // Marca que perdeu
+
+                                // Revela todas as bombas quando perde
+                                for (int l = 0; l < TAM; l++) {
+                                    for (int c = 0; c < TAM; c++) {
+                                        if (jogo[l][c].eBomba) {
+                                            jogo[l][c].estaAberta = 1;
+                                        }
+                                    }
+                                }
+                            }
+
+                            desenharTabuleiro();    // Redesenha o tabuleiro
+                        }
+                    }
+
+                    // CLIQUE DIREITO - COLOCAR/REMOVER BANDEIRA
+                    else if (me.dwButtonState & RIGHTMOST_BUTTON_PRESSED) {
+                        // Mesmo cálculo de coordenadas do clique esquerdo
+                        int lin = me.dwMousePosition.Y - 4;
+                        int col = (me.dwMousePosition.X - 3) / 3;
+
+                        // Se posição válida, alterna bandeira
+                        if (coordenadaValida(lin, col)) {
+                            alternarBandeira(lin, col);
+                            desenharTabuleiro();    // Redesenha o tabuleiro
+                        }
+                    }
+                }
+
+                // eventos do teclado (esc)
+                else if (evento[i].EventType == KEY_EVENT) {
+                    KEY_EVENT_RECORD ke = evento[i].Event.KeyEvent;
+
+                    // Se pressionou ESC, sai do jogo
+                    if (ke.bKeyDown && ke.wVirtualKeyCode == VK_ESCAPE) {
+                        perdeu = true;          // Força saída do loop
+                        break;                  // Sai do loop de eventos
+                    }
+                }
+            }
+        }
+    }
+
+    // fim do jogo
+    gotoxy(0, TAM + 6);             // Posiciona cursor após o tabuleiro
+
+    if (perdeu && !venceu()) {
+        cout << "\n Que pena! Você perdeu!\n";
+    }
+    else if (venceu()) {
+        cout << "\nParabéns! Você venceu!\n";
+    }
+
+    SetConsoleMode(hIn, modoAnterior);  // Restaura configuração original do console
+}
+
+// funçao principal
+int main() {
+    SetConsoleOutputCP(CP_UTF8);    // Configura console para mostrar emojis ( nao funcionou )
+    system("cls");                  // Limpa a tela
+
+    // tela inicial
+    cout << "=== Campo Minado com Suporte a Mouse ===\n";
+    cout << "Tamanho: " << TAM << "x" << TAM << "\n";
+    cout << "Digite a quantidade de bombas (1-" << (TAM * TAM - 1) << "): "; // para mostrar o tanto maximo de bombas que cabem no tabuleiro no 10x10 é 99
+    cin >> bombasTotais;            // Lê quantidade de bombas do usuário
+
+    // Valida a quantidade de bombas (deve ser entre 1 e 99 para tabuleiro 10x10)
+    if (bombasTotais < 1 || bombasTotais >= TAM * TAM)
+        bombasTotais = 10;          // Se inválido, usa 10 bombas
+
+    system("cls");                  // Limpa a tela antes de iniciar o jogo
+
+    // inicio do jogo
+    inicializar();                  // Prepara o tabuleiro (coloca bombas, calcula vizinhos)
+    loopJogo();                     // Inicia o loop principal do jogo
+
+    // fim do programa
+    cout << "\nPressione qualquer tecla para sair...";
+    system("pause");                // Espera o usuário pressionar uma tecla
+    return 0;                       // Termina o programa
+} 
